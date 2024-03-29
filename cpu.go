@@ -1,5 +1,9 @@
 package main
 
+import (
+	"math/bits"
+)
+
 type OPCode uint8
 
 type CPU struct {
@@ -19,7 +23,7 @@ func NewCPU() *CPU {
 	return cpu
 }
 
-// Register values as 16 bits group
+// Getters for registers as 16 bits pair
 func (c CPU) AF() uint16 { return uint16(c.A)<<8 | uint16(c.F) }
 func (c CPU) BC() uint16 { return uint16(c.B)<<8 | uint16(c.C) }
 func (c CPU) DE() uint16 { return uint16(c.D)<<8 | uint16(c.E) }
@@ -37,6 +41,29 @@ func (c *CPU) SetBC(value uint16) { c.B, c.C = uint16ToHiLo(value) }
 func (c *CPU) SetDE(value uint16) { c.D, c.E = uint16ToHiLo(value) }
 func (c *CPU) SetHL(value uint16) { c.H, c.L = uint16ToHiLo(value) }
 
+// Flags in F register
+func (c *CPU) setFlag(on bool, pos int) {
+	if on {
+		c.F |= (1 << pos)
+	} else {
+		c.F &= ^(1 << pos)
+	}
+}
+
+func (c *CPU) getFlag(pos int) bool {
+	return c.F>>pos&1 == 1
+}
+
+func (c *CPU) SetZFlag(on bool) { c.setFlag(on, 3) }
+func (c *CPU) SetNFlag(on bool) { c.setFlag(on, 2) }
+func (c *CPU) SetHFlag(on bool) { c.setFlag(on, 1) }
+func (c *CPU) SetCFlag(on bool) { c.setFlag(on, 0) }
+
+func (c *CPU) ZFlag() bool { return c.getFlag(3) }
+func (c *CPU) NFlag() bool { return c.getFlag(2) }
+func (c *CPU) HFlag() bool { return c.getFlag(1) }
+func (c *CPU) CFlag() bool { return c.getFlag(0) }
+
 func (gb *Gameboy) readMemory(addr uint16) uint8 {
 	value := gb.Memory[addr]
 	gb.CPU.PC++
@@ -47,6 +74,90 @@ func (gb *Gameboy) writeMemory(addr uint16, value uint8) {
 	gb.Memory[addr] = value
 	gb.CPU.PC++
 	return
+}
+
+func (c *CPU) inc(val uint8) uint8 {
+	result := val + 1
+
+	c.SetZFlag(result == 0)
+	c.SetNFlag(false)
+	c.SetHFlag((val&0xF)+(1&0xF) > 0xF)
+
+	return result
+}
+
+func (c *CPU) dec(val uint8) uint8 {
+	result := val - 1
+
+	c.SetZFlag(result == 0)
+	c.SetNFlag(false)
+	c.SetHFlag(val&0x0F == 0)
+
+	return result
+}
+
+func (c *CPU) add(val1, val2 uint8, carry uint) uint8 {
+	result, carryOut := bits.Add(uint(val1), uint(val2), carry)
+
+	c.SetZFlag(result == 0)
+	c.SetNFlag(false)
+	c.SetHFlag((val1&0xF)+(val2&0xF)+uint8(carryOut) > 0xF)
+	c.SetCFlag(result > 0xFF)
+
+	return uint8(result)
+}
+
+func (c *CPU) sub(val1, val2 uint8, borrow uint) uint8 {
+	result, borrowOut := bits.Sub(uint(val1), uint(val2), borrow)
+
+	c.SetZFlag(result == 0)
+	c.SetNFlag(true)
+	c.SetHFlag((val1&0xF)-(val2&0xF)-uint8(borrowOut) < 0)
+	c.SetCFlag(result < 0)
+
+	return uint8(result)
+}
+
+func (c *CPU) and(val1, val2 uint8) uint8 {
+	result := val1 & val2
+
+	c.SetZFlag(result == 0)
+	c.SetNFlag(false)
+	c.SetHFlag(true)
+	c.SetCFlag(false)
+
+	return result
+}
+
+func (c *CPU) xor(val1, val2 uint8) uint8 {
+	result := val1 ^ val2
+
+	c.SetZFlag(result == 0)
+	c.SetNFlag(false)
+	c.SetHFlag(false)
+	c.SetCFlag(false)
+
+	return result
+}
+
+func (c *CPU) or(val1, val2 uint8) uint8 {
+	result := val1 | val2
+
+	c.SetZFlag(result == 0)
+	c.SetNFlag(false)
+	c.SetHFlag(false)
+	c.SetCFlag(false)
+
+	return result
+}
+
+func (c *CPU) cp(val1, val2 uint8) {
+	result := val2 - val1
+
+	c.SetZFlag(result == 0)
+	c.SetNFlag(true)
+	c.SetHFlag((val1 & 0x0F) > (val2 & 0x0F))
+	c.SetCFlag(val1 > val2)
 }
 
 func (gb *Gameboy) Fetch() OPCode {
@@ -334,5 +445,323 @@ func (gb *Gameboy) Execute(opCode OPCode) {
 		addr := lsb<<8 | msb
 
 		gb.CPU.A = gb.readMemory(addr)
+	case 0x04:
+		// INC B
+		gb.CPU.B = gb.CPU.inc(gb.CPU.B)
+	case 0x14:
+		// INC D
+		gb.CPU.D = gb.CPU.inc(gb.CPU.D)
+	case 0x24:
+		// INC H
+		gb.CPU.H = gb.CPU.inc(gb.CPU.H)
+	case 0x34:
+		// INC [HL]
+		data := gb.readMemory(gb.CPU.HL())
+		gb.writeMemory(gb.CPU.HL(), gb.CPU.inc(data))
+	case 0x05:
+		// DEC B
+		gb.CPU.B = gb.CPU.dec(gb.CPU.B)
+	case 0x15:
+		// DEC D
+		gb.CPU.D = gb.CPU.dec(gb.CPU.D)
+	case 0x25:
+		// DEC H
+		gb.CPU.H = gb.CPU.dec(gb.CPU.H)
+	case 0x35:
+		// DEC [HL]
+		data := gb.readMemory(gb.CPU.HL())
+		gb.writeMemory(gb.CPU.HL(), gb.CPU.dec(data))
+	case 0x27:
+		// DAA
+		if !gb.CPU.NFlag() {
+			if gb.CPU.CFlag() || gb.CPU.A > 0x99 {
+				gb.CPU.A = gb.CPU.A + 0x60
+				gb.CPU.SetCFlag(true)
+			}
+			if gb.CPU.HFlag() || gb.CPU.A&0xF > 0x9 {
+				gb.CPU.A = gb.CPU.A + 0x06
+				gb.CPU.SetHFlag(false)
+			}
+		} else if gb.CPU.CFlag() && gb.CPU.HFlag() {
+			gb.CPU.A = gb.CPU.A + 0x9A
+			gb.CPU.SetHFlag(false)
+		} else if gb.CPU.CFlag() {
+			gb.CPU.A = gb.CPU.A + 0xA0
+		} else if gb.CPU.HFlag() {
+			gb.CPU.A = gb.CPU.A + 0xFA
+			gb.CPU.SetHFlag(false)
+		}
+		gb.CPU.SetZFlag(gb.CPU.A == 0)
+	case 0x37:
+		// SCF
+		gb.CPU.SetNFlag(false)
+		gb.CPU.SetHFlag(false)
+		gb.CPU.SetCFlag(true)
+	case 0x0C:
+		// INC C
+		gb.CPU.C = gb.CPU.inc(gb.CPU.C)
+	case 0x1C:
+		// INC E
+		gb.CPU.E = gb.CPU.inc(gb.CPU.E)
+	case 0x2C:
+		// INC L
+		gb.CPU.L = gb.CPU.inc(gb.CPU.L)
+	case 0x3C:
+		// INC A
+		gb.CPU.A = gb.CPU.inc(gb.CPU.A)
+	case 0x0D:
+		// DEC C
+		gb.CPU.C = gb.CPU.dec(gb.CPU.C)
+	case 0x1D:
+		// DEC E
+		gb.CPU.E = gb.CPU.dec(gb.CPU.E)
+	case 0x2D:
+		// DEC L
+		gb.CPU.L = gb.CPU.dec(gb.CPU.L)
+	case 0x3D:
+		// DEC A
+		gb.CPU.A = gb.CPU.dec(gb.CPU.A)
+	case 0x2F:
+		// CPL
+		gb.CPU.A = 0xFF ^ gb.CPU.A
+		gb.CPU.SetNFlag(true)
+		gb.CPU.SetHFlag(true)
+	case 0x3F:
+		// CCF
+		gb.CPU.SetNFlag(false)
+		gb.CPU.SetHFlag(false)
+		gb.CPU.SetCFlag(!gb.CPU.CFlag())
+	case 0x80:
+		// ADD A, B
+		gb.CPU.A = gb.CPU.add(gb.CPU.A, gb.CPU.B, 0)
+	case 0x81:
+		// ADD A, C
+		gb.CPU.A = gb.CPU.add(gb.CPU.A, gb.CPU.C, 0)
+	case 0x82:
+		// ADD A, D
+		gb.CPU.A = gb.CPU.add(gb.CPU.A, gb.CPU.D, 0)
+	case 0x83:
+		// ADD A, E
+		gb.CPU.A = gb.CPU.add(gb.CPU.A, gb.CPU.E, 0)
+	case 0x84:
+		// ADD A, H
+		gb.CPU.A = gb.CPU.add(gb.CPU.A, gb.CPU.H, 0)
+	case 0x85:
+		// ADD A, L
+		gb.CPU.A = gb.CPU.add(gb.CPU.A, gb.CPU.L, 0)
+	case 0x86:
+		// ADD A, [HL]
+		data := gb.readMemory(gb.CPU.HL())
+		gb.CPU.A = gb.CPU.add(gb.CPU.A, data, 0)
+	case 0x87:
+		// ADD A, A
+		gb.CPU.A = gb.CPU.add(gb.CPU.A, gb.CPU.A, 0)
+	case 0x88:
+		// ADC A, B
+		gb.CPU.A = gb.CPU.add(gb.CPU.B, gb.CPU.L, 1)
+	case 0x89:
+		// ADC A, C
+		gb.CPU.A = gb.CPU.add(gb.CPU.A, gb.CPU.C, 1)
+	case 0x8A:
+		// ADC A, D
+		gb.CPU.A = gb.CPU.add(gb.CPU.A, gb.CPU.D, 1)
+	case 0x8B:
+		// ADC A, E
+		gb.CPU.A = gb.CPU.add(gb.CPU.A, gb.CPU.E, 1)
+	case 0x8C:
+		// ADC A, H
+		gb.CPU.A = gb.CPU.add(gb.CPU.A, gb.CPU.H, 1)
+	case 0x8D:
+		// ADC A, L
+		gb.CPU.A = gb.CPU.add(gb.CPU.A, gb.CPU.L, 1)
+	case 0x8E:
+		// ADC A, [HL]
+		data := gb.readMemory(gb.CPU.HL())
+		gb.CPU.A = gb.CPU.add(gb.CPU.A, data, 1)
+	case 0x8F:
+		// ADC A, A
+		gb.CPU.A = gb.CPU.add(gb.CPU.A, gb.CPU.L, 1)
+	case 0x90:
+		// SUB A, B
+		gb.CPU.A = gb.CPU.sub(gb.CPU.A, gb.CPU.B, 0)
+	case 0x91:
+		// SUB A, C
+		gb.CPU.A = gb.CPU.sub(gb.CPU.A, gb.CPU.C, 0)
+	case 0x92:
+		// SUB A, D
+		gb.CPU.A = gb.CPU.sub(gb.CPU.A, gb.CPU.D, 0)
+	case 0x93:
+		// SUB A, E
+		gb.CPU.A = gb.CPU.sub(gb.CPU.A, gb.CPU.E, 0)
+	case 0x94:
+		// SUB A, H
+		gb.CPU.A = gb.CPU.sub(gb.CPU.A, gb.CPU.H, 0)
+	case 0x95:
+		// SUB A, L
+		gb.CPU.A = gb.CPU.sub(gb.CPU.A, gb.CPU.B, 0)
+	case 0x96:
+		// SUB A, [HL]
+		data := gb.readMemory(gb.CPU.HL())
+		gb.CPU.A = gb.CPU.sub(gb.CPU.A, data, 0)
+	case 0x97:
+		// SUB A, A
+		gb.CPU.A = gb.CPU.sub(gb.CPU.A, gb.CPU.A, 0)
+	case 0x98:
+		// SBC A, B
+		gb.CPU.A = gb.CPU.sub(gb.CPU.A, gb.CPU.B, 1)
+	case 0x99:
+		// SBC A, C
+		gb.CPU.A = gb.CPU.sub(gb.CPU.A, gb.CPU.C, 1)
+	case 0x9A:
+		// SBC A, D
+		gb.CPU.A = gb.CPU.sub(gb.CPU.A, gb.CPU.D, 1)
+	case 0x9B:
+		// SBC A, E
+		gb.CPU.A = gb.CPU.sub(gb.CPU.A, gb.CPU.E, 1)
+	case 0x9C:
+		// SBC A, H
+		gb.CPU.A = gb.CPU.sub(gb.CPU.A, gb.CPU.H, 1)
+	case 0x9D:
+		// SBC A, L
+		gb.CPU.A = gb.CPU.sub(gb.CPU.A, gb.CPU.L, 1)
+	case 0x9E:
+		// SBC A, [HL]
+		data := gb.readMemory(gb.CPU.HL())
+		gb.CPU.A = gb.CPU.sub(gb.CPU.A, data, 1)
+	case 0x9F:
+		// SBC A, A
+		gb.CPU.A = gb.CPU.sub(gb.CPU.A, gb.CPU.A, 1)
+	case 0xA0:
+		// AND A, B
+		gb.CPU.A = gb.CPU.and(gb.CPU.A, gb.CPU.B)
+	case 0xA1:
+		// AND A, C
+		gb.CPU.A = gb.CPU.and(gb.CPU.A, gb.CPU.C)
+	case 0xA2:
+		// AND A, D
+		gb.CPU.A = gb.CPU.and(gb.CPU.A, gb.CPU.D)
+	case 0xA3:
+		// AND A, E
+		gb.CPU.A = gb.CPU.and(gb.CPU.A, gb.CPU.E)
+	case 0xA4:
+		// AND A, H
+		gb.CPU.A = gb.CPU.and(gb.CPU.A, gb.CPU.H)
+	case 0xA5:
+		// AND A, L
+		gb.CPU.A = gb.CPU.and(gb.CPU.A, gb.CPU.L)
+	case 0xA6:
+		// AND A, [HL]
+		data := gb.readMemory(gb.CPU.HL())
+		gb.CPU.A = gb.CPU.and(gb.CPU.A, data)
+	case 0xA7:
+		// AND A, A
+		gb.CPU.A = gb.CPU.and(gb.CPU.A, gb.CPU.A)
+	case 0xA8:
+		// XOR A, B
+		gb.CPU.A = gb.CPU.xor(gb.CPU.A, gb.CPU.B)
+	case 0xA9:
+		// XOR A, C
+		gb.CPU.A = gb.CPU.xor(gb.CPU.A, gb.CPU.C)
+	case 0xAA:
+		// XOR A, D
+		gb.CPU.A = gb.CPU.xor(gb.CPU.A, gb.CPU.D)
+	case 0xAB:
+		// XOR A, E
+		gb.CPU.A = gb.CPU.xor(gb.CPU.A, gb.CPU.E)
+	case 0xAC:
+		// XOR A, H
+		gb.CPU.A = gb.CPU.xor(gb.CPU.A, gb.CPU.H)
+	case 0xAD:
+		// XOR A, L
+		gb.CPU.A = gb.CPU.xor(gb.CPU.A, gb.CPU.L)
+	case 0xAE:
+		// XOR A, [HL]
+		data := gb.readMemory(gb.CPU.HL())
+		gb.CPU.A = gb.CPU.xor(gb.CPU.A, data)
+	case 0xAF:
+		// XOR A, A
+		gb.CPU.A = gb.CPU.xor(gb.CPU.A, gb.CPU.A)
+	case 0xB0:
+		// OR A, B
+		gb.CPU.A = gb.CPU.or(gb.CPU.A, gb.CPU.B)
+	case 0xB1:
+		// OR A, C
+		gb.CPU.A = gb.CPU.or(gb.CPU.A, gb.CPU.C)
+	case 0xB2:
+		// OR A, D
+		gb.CPU.A = gb.CPU.or(gb.CPU.A, gb.CPU.D)
+	case 0xB3:
+		// OR A, E
+		gb.CPU.A = gb.CPU.or(gb.CPU.A, gb.CPU.E)
+	case 0xB4:
+		// OR A, H
+		gb.CPU.A = gb.CPU.or(gb.CPU.A, gb.CPU.H)
+	case 0xB5:
+		// OR A, L
+		gb.CPU.A = gb.CPU.or(gb.CPU.A, gb.CPU.L)
+	case 0xB6:
+		// OR A, [HL]
+		data := gb.readMemory(gb.CPU.HL())
+		gb.CPU.A = gb.CPU.or(gb.CPU.A, data)
+	case 0xB7:
+		// OR A, A
+		gb.CPU.A = gb.CPU.or(gb.CPU.A, gb.CPU.A)
+	case 0xB8:
+		// CP A, B
+		gb.CPU.cp(gb.CPU.A, gb.CPU.B)
+	case 0xB9:
+		// CP A, C
+		gb.CPU.cp(gb.CPU.A, gb.CPU.C)
+	case 0xBA:
+		// CP A, D
+		gb.CPU.cp(gb.CPU.A, gb.CPU.D)
+	case 0xBB:
+		// CP A, E
+		gb.CPU.cp(gb.CPU.A, gb.CPU.E)
+	case 0xBC:
+		// CP A, H
+		gb.CPU.cp(gb.CPU.A, gb.CPU.H)
+	case 0xBD:
+		// CP A, L
+		gb.CPU.cp(gb.CPU.A, gb.CPU.L)
+	case 0xBE:
+		// CP A, [HL]
+		data := gb.readMemory(gb.CPU.HL())
+		gb.CPU.cp(gb.CPU.A, data)
+	case 0xBF:
+		// CP A, A
+		gb.CPU.cp(gb.CPU.A, gb.CPU.A)
+	case 0xC6:
+		// ADD A, n8
+		n := gb.readMemory(gb.CPU.PC)
+		gb.CPU.A = gb.CPU.add(gb.CPU.A, n, 0)
+	case 0xD6:
+		// SUB A, n8
+		n := gb.readMemory(gb.CPU.PC)
+		gb.CPU.A = gb.CPU.sub(gb.CPU.A, n, 0)
+	case 0xE6:
+		// AND A, n8
+		n := gb.readMemory(gb.CPU.PC)
+		gb.CPU.A = gb.CPU.and(gb.CPU.A, n)
+	case 0xF6:
+		// OR A, n8
+		n := gb.readMemory(gb.CPU.PC)
+		gb.CPU.A = gb.CPU.or(gb.CPU.A, n)
+	case 0xCE:
+		// ADC A, n8
+		n := gb.readMemory(gb.CPU.PC)
+		gb.CPU.A = gb.CPU.add(gb.CPU.A, n, 1)
+	case 0xDE:
+		// SBC A, n8
+		n := gb.readMemory(gb.CPU.PC)
+		gb.CPU.A = gb.CPU.sub(gb.CPU.A, n, 1)
+	case 0xEE:
+		// XOR A, n8
+		n := gb.readMemory(gb.CPU.PC)
+		gb.CPU.A = gb.CPU.xor(gb.CPU.A, n)
+	case 0xFE:
+		// CP A, n8
+		n := gb.readMemory(gb.CPU.PC)
+		gb.CPU.cp(gb.CPU.A, n)
 	}
 }
