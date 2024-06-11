@@ -376,25 +376,31 @@ func (gb *Gameboy) Execute(opCode OPCode) {
 		gb.writeMemory(gb.CPU.HL(), gb.CPU.dec(data))
 	case 0x27:
 		// DAA
-		if !gb.CPU.NFlag() {
-			if gb.CPU.CFlag() || gb.CPU.A > 0x99 {
-				gb.CPU.A = gb.CPU.A + 0x60
+		a := gb.CPU.A
+		c := gb.CPU.CFlag()
+		h := gb.CPU.HFlag()
+		n := gb.CPU.NFlag()
+
+		if !n {
+			if c || a > 0x99 {
+				a += 0x60
 				gb.CPU.SetCFlag(true)
 			}
-			if gb.CPU.HFlag() || gb.CPU.A&0xF > 0x9 {
-				gb.CPU.A = gb.CPU.A + 0x06
-				gb.CPU.SetHFlag(false)
+			if h || a&0x0F > 0x09 {
+				a += 0x06
 			}
-		} else if gb.CPU.CFlag() && gb.CPU.HFlag() {
-			gb.CPU.A = gb.CPU.A + 0x9A
-			gb.CPU.SetHFlag(false)
-		} else if gb.CPU.CFlag() {
-			gb.CPU.A = gb.CPU.A + 0xA0
-		} else if gb.CPU.HFlag() {
-			gb.CPU.A = gb.CPU.A + 0xFA
-			gb.CPU.SetHFlag(false)
+		} else {
+			if c {
+				a -= 0x60
+			}
+			if h {
+				a -= 0x06
+			}
 		}
-		gb.CPU.SetZFlag(gb.CPU.A == 0)
+
+		gb.CPU.SetZFlag(a == 0)
+		gb.CPU.SetHFlag(false)
+		gb.CPU.A = a
 	case 0x37:
 		// SCF
 		gb.CPU.SetNFlag(false)
