@@ -10,6 +10,7 @@ type CPU struct {
 	PC   uint16
 	SP   uint16
 	IME  bool
+	Halt bool
 }
 
 func NewCPU() *CPU {
@@ -917,5 +918,175 @@ func (gb *Gameboy) Execute(opCode OPCode) {
 		gb.CPU.SP -= 1
 		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC&0xFF))
 		gb.CPU.PC = n
+	case 0x01:
+		// LD BC, n16
+		lsb := uint16(gb.readPC())
+		msb := uint16(gb.readPC())
+		gb.CPU.SetBC(lsb<<8 | msb)
+	case 0x11:
+		// LD DE, n16
+		lsb := uint16(gb.readPC())
+		msb := uint16(gb.readPC())
+		gb.CPU.SetDE(lsb<<8 | msb)
+	case 0x21:
+		// LD HL, n16
+		lsb := uint16(gb.readPC())
+		msb := uint16(gb.readPC())
+		gb.CPU.SetHL(lsb<<8 | msb)
+	case 0x31:
+		// LD SP, n16
+		lsb := uint16(gb.readPC())
+		msb := uint16(gb.readPC())
+		gb.CPU.SP = lsb<<8 | msb
+	case 0xC1:
+		// POP BC
+		lsb := uint16(gb.readSP())
+		msb := uint16(gb.readSP())
+		gb.CPU.SetBC(lsb<<8 | msb)
+	case 0xD1:
+		// POP DE
+		lsb := uint16(gb.readSP())
+		msb := uint16(gb.readSP())
+		gb.CPU.SetDE(lsb<<8 | msb)
+	case 0xE1:
+		// POP HL
+		lsb := uint16(gb.readSP())
+		msb := uint16(gb.readSP())
+		gb.CPU.SetHL(lsb<<8 | msb)
+	case 0xF1:
+		// POP AF
+		lsb := uint16(gb.readSP())
+		msb := uint16(gb.readSP())
+		gb.CPU.SetAF(lsb<<8 | msb)
+	case 0xC5:
+		// PUSH BC
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.BC()>>8))
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.BC()&0xFF))
+	case 0xD5:
+		// PUSH DE
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.DE()>>8))
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.DE()&0xFF))
+	case 0xE5:
+		// PUSH HL
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.HL()>>8))
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.HL()&0xFF))
+	case 0xF5:
+		// PUSH AF
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.AF()>>8))
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.AF()&0xFF))
+	case 0x08:
+		// LD [a16], SP
+		nnLsb := uint16(gb.readPC())
+		nnMsb := uint16(gb.readPC())
+		nn := nnLsb<<8 | nnMsb
+		
+		gb.writeMemory(nn, uint8(gb.CPU.SP&0xFF))
+		gb.writeMemory(nn+1, uint8(gb.CPU.SP>>8))
+	case 0xF8:
+		// LD HL, SP + e8
+		e := int8(gb.readPC())
+		result := gb.CPU.SP + uint16(e)
+		gb.CPU.SetHL(result)
+		gb.CPU.SetZFlag(false)
+		gb.CPU.SetNFlag(false)
+		gb.CPU.SetHFlag((gb.CPU.SP&0xF)+(uint16(e)&0xF) > 0xF)
+		gb.CPU.SetCFlag((gb.CPU.SP&0xFF)+(uint16(e)&0xFF) > 0xFF)
+	case 0xF9:
+		// LD SP, HL
+		gb.CPU.SP = gb.CPU.HL()
+	case 0x03:
+		// INC BC
+		gb.CPU.SetBC(gb.CPU.BC() + 1)
+	case 0x13:
+		// INC DE
+		gb.CPU.SetDE(gb.CPU.DE() + 1)
+	case 0x23:
+		// INC HL
+		gb.CPU.SetHL(gb.CPU.HL() + 1)
+	case 0x33:
+		// INC SP
+		gb.CPU.SP++
+	case 0xE8:
+		// ADD SP, e8
+		e := int8(gb.readPC())
+		result := gb.CPU.SP + uint16(e)
+		gb.CPU.SP = result
+		gb.CPU.SetZFlag(false)
+		gb.CPU.SetNFlag(false)
+		gb.CPU.SetHFlag((gb.CPU.SP&0xF)+(uint16(e)&0xF) > 0xF)
+		gb.CPU.SetCFlag((gb.CPU.SP&0xFF)+(uint16(e)&0xFF) > 0xFF)
+	case 0x09:
+		// ADD HL, BC
+		gb.CPU.SetHL(gb.CPU.HL() + gb.CPU.BC())
+		gb.CPU.SetNFlag(false)
+		gb.CPU.SetHFlag((gb.CPU.HL()&0xFFF) < (gb.CPU.BC()&0xFFF))
+		gb.CPU.SetCFlag(gb.CPU.HL() < gb.CPU.BC())
+	case 0x19:
+		// ADD HL, DE
+		gb.CPU.SetHL(gb.CPU.HL() + gb.CPU.DE())
+		gb.CPU.SetNFlag(false)
+		gb.CPU.SetHFlag((gb.CPU.HL()&0xFFF) < (gb.CPU.DE()&0xFFF))
+		gb.CPU.SetCFlag(gb.CPU.HL() < gb.CPU.DE())
+	case 0x29:
+		// ADD HL, HL
+		gb.CPU.SetHL(gb.CPU.HL() + gb.CPU.HL())
+		gb.CPU.SetNFlag(false)
+		gb.CPU.SetHFlag((gb.CPU.HL()&0xFFF) < (gb.CPU.HL()&0xFFF))
+		gb.CPU.SetCFlag(gb.CPU.HL() < gb.CPU.HL())
+	case 0x39:
+		// ADD HL, SP
+		gb.CPU.SetHL(gb.CPU.HL() + gb.CPU.SP)
+		gb.CPU.SetNFlag(false)
+		gb.CPU.SetHFlag((gb.CPU.HL()&0xFFF) < (gb.CPU.SP&0xFFF))
+		gb.CPU.SetCFlag(gb.CPU.HL() < gb.CPU.SP)
+	case 0x0B:
+		// DEC BC
+		gb.CPU.SetBC(gb.CPU.BC() - 1)
+	case 0x1B:
+		// DEC DE
+		gb.CPU.SetDE(gb.CPU.DE() - 1)
+	case 0x2B:
+		// DEC HL
+		gb.CPU.SetHL(gb.CPU.HL() - 1)
+	case 0x3B:
+		// DEC SP
+		gb.CPU.SP--
+	case 0x07:
+		// RLCA
+		gb.CPU.A = gb.CPU.rl(gb.CPU.A, false)
+	case 0x17:
+		// RLA
+		gb.CPU.A = gb.CPU.rl(gb.CPU.A, true)
+	case 0x0F:
+		// RRCA
+		gb.CPU.A = gb.CPU.rr(gb.CPU.A, false)
+	case 0x1F:
+		// RRA
+		gb.CPU.A = gb.CPU.rr(gb.CPU.A, true)
+	case 0x00:
+		// NOP
+	case 0x10:
+		// STOP
+		gb.CPU.PC++
+	case 0xF3:
+		// DI
+		gb.CPU.IME = false
+	case 0x76:
+		// HALT
+		gb.CPU.PC++
+		gb.CPU.Halt = true
+	case 0xCB:
+		// PREFIX
+	case 0xFB:
+		// EI
+		gb.CPU.IME = true
 	}
 }

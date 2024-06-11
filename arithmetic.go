@@ -85,3 +85,25 @@ func (c *CPU) cp(val1, val2 uint8) {
 	c.SetHFlag((val1 & 0x0F) > (val2 & 0x0F))
 	c.SetCFlag(val1 > val2)
 }
+
+func (c *CPU) rl(val uint8, carry bool) uint8 {
+	result := val<<1 | uint8(c.F&0x10)>>4
+
+	c.SetZFlag(result == 0)
+	c.SetNFlag(false)
+	c.SetHFlag(false)
+	c.SetCFlag(val&0x80 == 0x80)
+
+	return result
+}
+
+func (c *CPU) rr(val uint8, carry bool) uint8 {
+	result := val>>1 | uint8(c.F&0x10)<<3
+
+	c.SetZFlag(result == 0)
+	c.SetNFlag(false)
+	c.SetHFlag(false)
+	c.SetCFlag(val&0x01 == 0x01)
+
+	return result
+}
