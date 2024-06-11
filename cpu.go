@@ -1,9 +1,5 @@
 package main
 
-import (
-	"math/bits"
-)
-
 type OPCode uint8
 
 type CPU struct {
@@ -12,6 +8,8 @@ type CPU struct {
 	D, E uint8
 	H, L uint8
 	PC   uint16
+	SP   uint16
+	IME  bool
 }
 
 func NewCPU() *CPU {
@@ -64,104 +62,8 @@ func (c *CPU) NFlag() bool { return c.getFlag(2) }
 func (c *CPU) HFlag() bool { return c.getFlag(1) }
 func (c *CPU) CFlag() bool { return c.getFlag(0) }
 
-func (gb *Gameboy) readMemory(addr uint16) uint8 {
-	value := gb.Memory[addr]
-	gb.CPU.PC++
-	return value
-}
-
-func (gb *Gameboy) writeMemory(addr uint16, value uint8) {
-	gb.Memory[addr] = value
-	gb.CPU.PC++
-	return
-}
-
-func (c *CPU) inc(val uint8) uint8 {
-	result := val + 1
-
-	c.SetZFlag(result == 0)
-	c.SetNFlag(false)
-	c.SetHFlag((val&0xF)+(1&0xF) > 0xF)
-
-	return result
-}
-
-func (c *CPU) dec(val uint8) uint8 {
-	result := val - 1
-
-	c.SetZFlag(result == 0)
-	c.SetNFlag(false)
-	c.SetHFlag(val&0x0F == 0)
-
-	return result
-}
-
-func (c *CPU) add(val1, val2 uint8, carry uint) uint8 {
-	result, carryOut := bits.Add(uint(val1), uint(val2), carry)
-
-	c.SetZFlag(result == 0)
-	c.SetNFlag(false)
-	c.SetHFlag((val1&0xF)+(val2&0xF)+uint8(carryOut) > 0xF)
-	c.SetCFlag(result > 0xFF)
-
-	return uint8(result)
-}
-
-func (c *CPU) sub(val1, val2 uint8, borrow uint) uint8 {
-	result, borrowOut := bits.Sub(uint(val1), uint(val2), borrow)
-
-	c.SetZFlag(result == 0)
-	c.SetNFlag(true)
-	c.SetHFlag((val1&0xF)-(val2&0xF)-uint8(borrowOut) < 0)
-	c.SetCFlag(result < 0)
-
-	return uint8(result)
-}
-
-func (c *CPU) and(val1, val2 uint8) uint8 {
-	result := val1 & val2
-
-	c.SetZFlag(result == 0)
-	c.SetNFlag(false)
-	c.SetHFlag(true)
-	c.SetCFlag(false)
-
-	return result
-}
-
-func (c *CPU) xor(val1, val2 uint8) uint8 {
-	result := val1 ^ val2
-
-	c.SetZFlag(result == 0)
-	c.SetNFlag(false)
-	c.SetHFlag(false)
-	c.SetCFlag(false)
-
-	return result
-}
-
-func (c *CPU) or(val1, val2 uint8) uint8 {
-	result := val1 | val2
-
-	c.SetZFlag(result == 0)
-	c.SetNFlag(false)
-	c.SetHFlag(false)
-	c.SetCFlag(false)
-
-	return result
-}
-
-func (c *CPU) cp(val1, val2 uint8) {
-	result := val2 - val1
-
-	c.SetZFlag(result == 0)
-	c.SetNFlag(true)
-	c.SetHFlag((val1 & 0x0F) > (val2 & 0x0F))
-	c.SetCFlag(val1 > val2)
-}
-
 func (gb *Gameboy) Fetch() OPCode {
-	code := gb.readMemory(gb.CPU.PC)
+	code := gb.readPC()
 
 	return OPCode(code)
 }
@@ -380,16 +282,16 @@ func (gb *Gameboy) Execute(opCode OPCode) {
 		gb.CPU.SetHL(gb.CPU.HL() - 1)
 	case 0x06:
 		// LD B, n8
-		gb.CPU.B = gb.readMemory(gb.CPU.PC)
+		gb.CPU.B = gb.readPC()
 	case 0x16:
 		// LD D, n8
-		gb.CPU.D = gb.readMemory(gb.CPU.PC)
+		gb.CPU.D = gb.readPC()
 	case 0x26:
 		// LD H, n8
-		gb.CPU.H = gb.readMemory(gb.CPU.PC)
+		gb.CPU.H = gb.readPC()
 	case 0x36:
 		// LD [HL], n8
-		value := gb.readMemory(gb.CPU.PC)
+		value := gb.readPC()
 		gb.writeMemory(gb.CPU.HL(), value)
 	case 0x0A:
 		// LD A, [BC]
@@ -407,23 +309,23 @@ func (gb *Gameboy) Execute(opCode OPCode) {
 		gb.CPU.SetHL(gb.CPU.HL() - 1)
 	case 0x0E:
 		// LD C, n8
-		gb.CPU.C = gb.readMemory(gb.CPU.PC)
+		gb.CPU.C = gb.readPC()
 	case 0x1E:
 		// LD E, n8
-		gb.CPU.E = gb.readMemory(gb.CPU.PC)
+		gb.CPU.E = gb.readPC()
 	case 0x2E:
 		// LD L, n8
-		gb.CPU.L = gb.readMemory(gb.CPU.PC)
+		gb.CPU.L = gb.readPC()
 	case 0x3E:
 		// LD A, n8
-		gb.CPU.A = gb.readMemory(gb.CPU.PC)
+		gb.CPU.A = gb.readPC()
 	case 0xE0:
 		// LDH [a8], A
-		value := gb.readMemory(gb.CPU.PC)
+		value := gb.readPC()
 		gb.writeMemory(0xFF00+uint16(value), gb.CPU.A)
 	case 0xF0:
 		// LDH A, [a8]
-		value := gb.readMemory(gb.CPU.PC)
+		value := gb.readPC()
 		gb.CPU.A = gb.readMemory(0xFF00 + uint16(value))
 	case 0xE2:
 		// LD [C], A
@@ -433,15 +335,15 @@ func (gb *Gameboy) Execute(opCode OPCode) {
 		gb.CPU.A = gb.readMemory(0xFF00 + uint16(gb.CPU.C))
 	case 0xEA:
 		// LD [a16], A
-		lsb := uint16(gb.readMemory(gb.CPU.PC))
-		msb := uint16(gb.readMemory(gb.CPU.PC))
+		lsb := uint16(gb.readPC())
+		msb := uint16(gb.readPC())
 		addr := lsb<<8 | msb
 
 		gb.writeMemory(addr, gb.CPU.A)
 	case 0xFA:
 		// LD A, [a16]
-		lsb := uint16(gb.readMemory(gb.CPU.PC))
-		msb := uint16(gb.readMemory(gb.CPU.PC))
+		lsb := uint16(gb.readPC())
+		msb := uint16(gb.readPC())
 		addr := lsb<<8 | msb
 
 		gb.CPU.A = gb.readMemory(addr)
@@ -733,35 +635,287 @@ func (gb *Gameboy) Execute(opCode OPCode) {
 		gb.CPU.cp(gb.CPU.A, gb.CPU.A)
 	case 0xC6:
 		// ADD A, n8
-		n := gb.readMemory(gb.CPU.PC)
+		n := gb.readPC()
 		gb.CPU.A = gb.CPU.add(gb.CPU.A, n, 0)
 	case 0xD6:
 		// SUB A, n8
-		n := gb.readMemory(gb.CPU.PC)
+		n := gb.readPC()
 		gb.CPU.A = gb.CPU.sub(gb.CPU.A, n, 0)
 	case 0xE6:
 		// AND A, n8
-		n := gb.readMemory(gb.CPU.PC)
+		n := gb.readPC()
 		gb.CPU.A = gb.CPU.and(gb.CPU.A, n)
 	case 0xF6:
 		// OR A, n8
-		n := gb.readMemory(gb.CPU.PC)
+		n := gb.readPC()
 		gb.CPU.A = gb.CPU.or(gb.CPU.A, n)
 	case 0xCE:
 		// ADC A, n8
-		n := gb.readMemory(gb.CPU.PC)
+		n := gb.readPC()
 		gb.CPU.A = gb.CPU.add(gb.CPU.A, n, 1)
 	case 0xDE:
 		// SBC A, n8
-		n := gb.readMemory(gb.CPU.PC)
+		n := gb.readPC()
 		gb.CPU.A = gb.CPU.sub(gb.CPU.A, n, 1)
 	case 0xEE:
 		// XOR A, n8
-		n := gb.readMemory(gb.CPU.PC)
+		n := gb.readPC()
 		gb.CPU.A = gb.CPU.xor(gb.CPU.A, n)
 	case 0xFE:
 		// CP A, n8
-		n := gb.readMemory(gb.CPU.PC)
+		n := gb.readPC()
 		gb.CPU.cp(gb.CPU.A, n)
+	case 0x20:
+		// JR NZ, e8
+		e := uint16(gb.readPC())
+		if !gb.CPU.ZFlag() {
+			gb.CPU.PC += e
+		}
+	case 0x30:
+		// JR NC, e8
+		e := uint16(gb.readPC())
+		if !gb.CPU.CFlag() {
+			gb.CPU.PC += e
+		}
+	case 0x18:
+		// JR e8
+		gb.CPU.PC += uint16(gb.readPC())
+	case 0x28:
+		// JR Z, e8
+		e := uint16(gb.readPC())
+		if gb.CPU.ZFlag() {
+			gb.CPU.PC += e
+		}
+	case 0x38:
+		// JR C, e8
+		e := uint16(gb.readPC())
+		if gb.CPU.CFlag() {
+			gb.CPU.PC += e
+		}
+	case 0xC0:
+		// RET NZ
+		if !gb.CPU.ZFlag() {
+			lsb := uint16(gb.readSP())
+			msb := uint16(gb.readSP())
+			addr := lsb<<8 | msb
+
+			gb.CPU.PC = uint16(addr)
+		}
+	case 0xD0:
+		// RET NC
+		if !gb.CPU.CFlag() {
+			lsb := uint16(gb.readSP())
+			msb := uint16(gb.readSP())
+			addr := lsb<<8 | msb
+
+			gb.CPU.PC = uint16(addr)
+		}
+	case 0xC2:
+		// JP NZ, a16
+		nnLsb := uint16(gb.readPC())
+		nnMsb := uint16(gb.readPC())
+		nn := nnLsb<<8 | nnMsb
+
+		if !gb.CPU.ZFlag() {
+			gb.CPU.PC = nn
+		}
+	case 0xD2:
+		// JP NC, a16
+		nnLsb := uint16(gb.readPC())
+		nnMsb := uint16(gb.readPC())
+		nn := nnLsb<<8 | nnMsb
+
+		if !gb.CPU.CFlag() {
+			gb.CPU.PC = nn
+		}
+	case 0xC3:
+		// JP a16
+		nnLsb := uint16(gb.readPC())
+		nnMsb := uint16(gb.readPC())
+		nn := nnLsb<<8 | nnMsb
+
+		gb.CPU.PC = nn
+	case 0xC4:
+		// CALL NZ, a16
+		nnLsb := uint16(gb.readPC())
+		nnMsb := uint16(gb.readPC())
+		nn := nnLsb<<8 | nnMsb
+
+		if !gb.CPU.ZFlag() {
+			gb.CPU.SP -= 1
+			gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC>>8))
+			gb.CPU.SP -= 1
+			gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC&0xFF))
+			gb.CPU.PC = nn
+		}
+	case 0xD4:
+		// CALL NC, a16
+		nnLsb := uint16(gb.readPC())
+		nnMsb := uint16(gb.readPC())
+		nn := nnLsb<<8 | nnMsb
+
+		if !gb.CPU.CFlag() {
+			gb.CPU.SP -= 1
+			gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC>>8))
+			gb.CPU.SP -= 1
+			gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC&0xFF))
+			gb.CPU.PC = nn
+		}
+	case 0xC7:
+		// RST $00
+		n := uint16(0x00)
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC>>8))
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC&0xFF))
+		gb.CPU.PC = n
+	case 0xD7:
+		// RST $10
+		n := uint16(0x10)
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC>>8))
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC&0xFF))
+		gb.CPU.PC = n
+	case 0xE7:
+		// RST $20
+		n := uint16(0x20)
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC>>8))
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC&0xFF))
+		gb.CPU.PC = n
+	case 0xF7:
+		// RST $30
+		n := uint16(0x30)
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC>>8))
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC&0xFF))
+		gb.CPU.PC = n
+	case 0xC8:
+		// RET Z
+		if !gb.CPU.ZFlag() {
+			lsb := uint16(gb.readSP())
+			msb := uint16(gb.readSP())
+			addr := lsb<<8 | msb
+
+			gb.CPU.PC = uint16(addr)
+		}
+	case 0xD8:
+		// RET C
+		if !gb.CPU.CFlag() {
+			lsb := uint16(gb.readSP())
+			msb := uint16(gb.readSP())
+			addr := lsb<<8 | msb
+
+			gb.CPU.PC = uint16(addr)
+		}
+	case 0xC9:
+		// RET
+		lsb := uint16(gb.readSP())
+		msb := uint16(gb.readSP())
+		addr := lsb<<8 | msb
+
+		gb.CPU.PC = uint16(addr)
+	case 0xD9:
+		// RETI
+		lsb := uint16(gb.readSP())
+		msb := uint16(gb.readSP())
+		addr := lsb<<8 | msb
+
+		gb.CPU.PC = uint16(addr)
+		gb.CPU.IME = true
+	case 0xE9:
+		// JP HL
+		gb.CPU.PC = gb.CPU.HL()
+	case 0xCA:
+		// JP Z, a16
+		nnLsb := uint16(gb.readPC())
+		nnMsb := uint16(gb.readPC())
+		nn := nnLsb<<8 | nnMsb
+
+		if gb.CPU.ZFlag() {
+			gb.CPU.PC = nn
+		}
+	case 0xDA:
+		// JP C, a16
+		nnLsb := uint16(gb.readPC())
+		nnMsb := uint16(gb.readPC())
+		nn := nnLsb<<8 | nnMsb
+
+		if gb.CPU.CFlag() {
+			gb.CPU.PC = nn
+		}
+	case 0xCC:
+		// CALL Z, a16
+		nnLsb := uint16(gb.readPC())
+		nnMsb := uint16(gb.readPC())
+		nn := nnLsb<<8 | nnMsb
+
+		if gb.CPU.ZFlag() {
+			gb.CPU.SP -= 1
+			gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC>>8))
+			gb.CPU.SP -= 1
+			gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC&0xFF))
+			gb.CPU.PC = nn
+		}
+	case 0xDC:
+		// CALL C, a16
+		nnLsb := uint16(gb.readPC())
+		nnMsb := uint16(gb.readPC())
+		nn := nnLsb<<8 | nnMsb
+
+		if gb.CPU.CFlag() {
+			gb.CPU.SP -= 1
+			gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC>>8))
+			gb.CPU.SP -= 1
+			gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC&0xFF))
+			gb.CPU.PC = nn
+		}
+
+	case 0xCD:
+		// CALL a16
+		nnLsb := uint16(gb.readPC())
+		nnMsb := uint16(gb.readPC())
+		nn := nnLsb<<8 | nnMsb
+
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC>>8))
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC&0xFF))
+		gb.CPU.PC = nn
+	case 0xCF:
+		// RST $08
+		n := uint16(0x08)
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC>>8))
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC&0xFF))
+		gb.CPU.PC = n
+	case 0xDF:
+		// RST $18
+		n := uint16(0x18)
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC>>8))
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC&0xFF))
+		gb.CPU.PC = n
+	case 0xEF:
+		// RST $28
+		n := uint16(0x28)
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC>>8))
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC&0xFF))
+		gb.CPU.PC = n
+	case 0xFF:
+		// RST $38
+		n := uint16(0x38)
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC>>8))
+		gb.CPU.SP -= 1
+		gb.writeMemory(gb.CPU.SP, uint8(gb.CPU.PC&0xFF))
+		gb.CPU.PC = n
 	}
 }
