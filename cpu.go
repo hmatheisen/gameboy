@@ -16,8 +16,18 @@ type CPU struct {
 func NewCPU() *CPU {
 	cpu := new(CPU)
 
-	// FIXME: Probably false
-	cpu.PC = 0x0000
+	cpu.PC = 0x100
+	cpu.SP = 0xFFFE
+	cpu.IME = true
+	cpu.Halt = false
+	cpu.A = 0x01
+	cpu.F = 0xB0
+	cpu.B = 0x00
+	cpu.C = 0x13
+	cpu.D = 0x00
+	cpu.E = 0xD8
+	cpu.H = 0x01
+	cpu.L = 0x4D
 
 	return cpu
 }
@@ -993,7 +1003,7 @@ func (gb *Gameboy) Execute(opCode OPCode) {
 		nnLsb := uint16(gb.readPC())
 		nnMsb := uint16(gb.readPC())
 		nn := nnLsb<<8 | nnMsb
-		
+
 		gb.writeMemory(nn, uint8(gb.CPU.SP&0xFF))
 		gb.writeMemory(nn+1, uint8(gb.CPU.SP>>8))
 	case 0xF8:
@@ -1033,25 +1043,25 @@ func (gb *Gameboy) Execute(opCode OPCode) {
 		// ADD HL, BC
 		gb.CPU.SetHL(gb.CPU.HL() + gb.CPU.BC())
 		gb.CPU.SetNFlag(false)
-		gb.CPU.SetHFlag((gb.CPU.HL()&0xFFF) < (gb.CPU.BC()&0xFFF))
+		gb.CPU.SetHFlag((gb.CPU.HL() & 0xFFF) < (gb.CPU.BC() & 0xFFF))
 		gb.CPU.SetCFlag(gb.CPU.HL() < gb.CPU.BC())
 	case 0x19:
 		// ADD HL, DE
 		gb.CPU.SetHL(gb.CPU.HL() + gb.CPU.DE())
 		gb.CPU.SetNFlag(false)
-		gb.CPU.SetHFlag((gb.CPU.HL()&0xFFF) < (gb.CPU.DE()&0xFFF))
+		gb.CPU.SetHFlag((gb.CPU.HL() & 0xFFF) < (gb.CPU.DE() & 0xFFF))
 		gb.CPU.SetCFlag(gb.CPU.HL() < gb.CPU.DE())
 	case 0x29:
 		// ADD HL, HL
 		gb.CPU.SetHL(gb.CPU.HL() + gb.CPU.HL())
 		gb.CPU.SetNFlag(false)
-		gb.CPU.SetHFlag((gb.CPU.HL()&0xFFF) < (gb.CPU.HL()&0xFFF))
+		gb.CPU.SetHFlag((gb.CPU.HL() & 0xFFF) < (gb.CPU.HL() & 0xFFF))
 		gb.CPU.SetCFlag(gb.CPU.HL() < gb.CPU.HL())
 	case 0x39:
 		// ADD HL, SP
 		gb.CPU.SetHL(gb.CPU.HL() + gb.CPU.SP)
 		gb.CPU.SetNFlag(false)
-		gb.CPU.SetHFlag((gb.CPU.HL()&0xFFF) < (gb.CPU.SP&0xFFF))
+		gb.CPU.SetHFlag((gb.CPU.HL() & 0xFFF) < (gb.CPU.SP & 0xFFF))
 		gb.CPU.SetCFlag(gb.CPU.HL() < gb.CPU.SP)
 	case 0x0B:
 		// DEC BC

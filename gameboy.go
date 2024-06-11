@@ -3,10 +3,9 @@ package main
 type Memory [0xFFFF]uint8
 
 type Gameboy struct {
-	CPU    *CPU
-	Memory *Memory
-	// Machine Cycles
-	MCycles int
+	CPU     *CPU
+	Memory  *Memory
+	MCycles int // Machine cycles
 }
 
 func NewGameboy() *Gameboy {
